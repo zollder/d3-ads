@@ -1,0 +1,297 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<title>Experiments with D3 shapes</title>
+		<script type="text/javascript" src="https://d3js.org/d3.v4.min.js"></script>
+		<style type="text/css">
+			h1 {
+				text-align: center;
+				font-size: 20px;
+			}
+			svg {
+				stroke-width: 3px;
+				border: 1px solid grey;
+			}
+			.xAxis path, .xAxis line,
+			.yAxis path, .yAxis line {
+				fill: none;
+				stroke: grey;
+				stroke-width: 1;
+				shape-rendering: crispEdges;
+			}
+			path.line {
+				stroke: steelblue;
+				stroke-width: 2;
+				fill: steelblue;
+				fill-opacity: 0.3;
+			}
+			circle {
+				fill: red;
+			}
+			path {
+				stroke: steelblue;
+				stroke-width: 2px;
+				stroke-linecap: round;
+			}
+		</style>
+	</head>
+	<body>
+	    <div id="graph">
+			<h1>Connecting Two Points with a Line in D3.js</h1>
+		</div>
+		<div id="toolbox">
+				<input id="undoBtn" name="updateButton"  type="button" value="Undo" onclick="removeLast()" />
+				<input id="clearBtn" name="clearButton"  type="button" value="Clear" onclick="clearAll()" />
+				<input id="sweepBtn" name="sweepButton"  type="button" value="Sweep" onclick="sweep()" />
+		</div>
+		<script type="text/javascript" charset="utf-8">
+			var width = 600;
+			var height = 400;
+
+			var currentPath;
+			var isDrawing = false;
+			var lines = [];
+
+			/*
+				Initializes main components and behavior.
+			*/
+			var svg = d3.select("body")
+				.append("svg")
+					.attr("width", width)
+					.attr("height", height)
+					.on("mousedown", onMouseDown)
+					.on("mouseup", onMouseUp);
+
+			/*
+				Line function definition.
+			*/
+			var lineFunct = d3.line()
+				.x(function (d) {
+					return d[0];
+				})
+				.y(function (d) {
+					return d[1];
+				});
+
+			/*
+				OnMouseDown event handler.
+				Captures mouse coordinates for the line's start point.
+				Appends the line and its end point.
+			*/
+			function onMouseDown() {
+				isDrawing = true;
+				var startPos = d3.mouse(this);
+
+				// set line's start point
+				lines.push([startPos, [0, 0]]);
+				console.log("start: ", startPos);
+
+				// draw the line
+				var line = lineFunct([startPos, startPos]);
+				currentPath = svg.append("path").attr("d", line);
+
+				// draw line's start point
+				svg.append("circle")
+					.data([startPos])
+					.attr("r", 3)
+					.attr("cx", function(d) {return d[0]; })
+					.attr("cy", function(d) {return d[1]; });
+
+				// pass arguments to onMouseMove
+				svg.data([startPos])
+					.on("mousemove", onMouseMove);
+			}
+
+			/*
+				OnMouseMove event handler.
+				Captures current mouse coordinates to visualize live drawing.
+			*/
+			function onMouseMove(startPos) {
+				var currentPos = d3.mouse(this);
+				if (isDrawing) {
+					var line = lineFunct([startPos, currentPos]);
+					currentPath.attr("d", line);
+				}
+			}
+
+			/*
+				OnMouseUp event handler.
+				Captures mouse coordinates for the end of line being drawn.
+				Updates and appends line's end point.
+			*/
+			function onMouseUp() {
+				isDrawing = false;
+				endPos = d3.mouse(this);
+
+				// update line's end point
+				lines[lines.length - 1][1] = endPos;
+
+				// draw line's end point
+				svg.append("circle")
+					.data([endPos])
+					.attr("r", 3)
+					.attr("cx", function(d) {return d[0]; })
+					.attr("cy", function(d) {return d[1]; });
+				console.log("lines: ", lines.toString());
+			}
+
+			/*
+				Removes the last line and associated terminal points
+				1. associate data to selection
+				2. retrieve and remove the diff
+			*/
+			function removeLast() {
+				console.log("Removed line: ", lines.pop());
+				console.log("lines: ", lines.toString());
+				svg.selectAll("path").data(lines).exit().remove();
+				svg.selectAll("circle").data(getPoints(lines)).exit().remove();
+			}
+
+			/*
+				Cleans the chart area.
+				Removes all lines and associated terminal points.
+			*/
+			function clearAll() {
+				console.log("Clearing ...")
+				svg.selectAll("path").remove();
+				svg.selectAll("circle").remove();
+			}
+
+			/* Returns an array of terminal points for given lines. */
+			function getPoints(lines) {
+				var points = [];
+				for (var i = 0; i < lines.length; i++) {
+					for (var j = 0; j < lines[i].length; j++) {
+						points.push(lines[i][j]);
+					}
+				}
+				return points;
+			}
+
+			function sweep() {
+
+			}
+/*			svg.on('mousedown', function() {
+					isDrawing = true;
+					startPos = d3.mouse(this);
+					console.log("start: ", startPos);
+
+					var line = lineFunct([startPos, startPos]);
+					path = svg.append("path").attr("d", line);
+				})
+				.on('mousemove', function() {
+					var endPos = d3.mouse(this).map(function(x){ return x - 1; });
+					if (isDrawing) {
+						var line = lineFunct([startPos, endPos]);
+						path.attr("d", line);
+					}
+				})
+				.on('mouseup', function() {
+					isDrawing = false;
+					console.log("end: ", d3.mouse(this));
+				});*/
+
+/*			var labelDistance = 0;
+			var width = 600, height = 400;
+			var margin = { top: 20, right: 80, bottom: 30, left: 50 };
+
+			var x = d3.scaleLinear().range([0, width]).domain([0,200]);
+			var y = d3.scaleLinear().range([height, 0]).domain([0,400]);
+
+			var xAxis = d3.axisBottom().scale(x).ticks(5);
+			var yAxis = d3.axisLeft().scale(y).ticks(5);
+
+			var svg = d3.select("body")
+				.append("svg")
+					.on("mousedown", mousedown)
+					.on("mouseup", mouseup)
+					.attr("width", width + margin.left + margin.right)
+					.attr("height", height + margin.top + margin.bottom)
+				.append("g")
+					.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+			svg.append("g")
+				.attr("class", "xAxis")
+				.attr("transform", "translate(0," + height + ")")
+				.call(xAxis);
+			svg.append("g")
+				.attr("class", "yAxis")
+				.call(yAxis);
+*/
+			/* Add and configure lines */
+/*			
+			var lineFunct = d3.line()
+				.x(function (d) { return x(d[0]); })
+				.y(function (d) { return y(d[1]); });
+
+			var drawLines = function(lines) {
+				for (var i = 0; i < lines.length; i++) {
+					svg.append("path")
+						.datum(lines[i])
+						.attr("class", "line")
+						.attr("d", lineFunct);
+				}
+			}
+
+			var linesToPoints = function(lines) {
+				var points = [];
+				for (var i = 0; i < lines.length; i++) {
+					for (var j = 0; j < lines[i].length; j++) {
+						points.push(lines[i][j]);
+					}
+				}
+				return points;
+			}*/
+
+			/* Prepare data */
+/*			var lines = [
+			  [[ 20, 20 ], [ 70, 40 ]],
+			  [[ 40, 40 ], [ 60, 70 ]],
+			  [[ 80, 20 ], [ 80, 60 ]]
+			]
+			drawLines(lines);*/
+
+			/* Add and configure line points */
+/*			var points = linesToPoints(lines);
+			svg.selectAll("point.circle")
+				.data(points)
+				.enter()
+				.append("circle")
+				.attr("class", 'point')
+				.attr("r", 3)
+				.attr("cx", function(d) { return x(d[0]); })
+				.attr("cy", function(d) { return y(d[1]); });
+
+			var newline;
+			var draw = false;
+			function mousedown() {
+				draw = true;
+				var startPos = d3.mouse(this);
+				console.log("down: ", startPos);
+				svg.append("path")
+					// .datum(newline)
+					.attr("class", "line")
+					.attr("d", lineFunct([startPos, startPos]));
+				svg.on("mousemove", mousemove);
+			}
+
+			function mouseup() {
+				var endPos = d3.mouse(this);
+				console.log("up: ", endPos);
+				// svg.on("mousemove", null);
+				draw = false;
+			}
+
+			function mousemove() {
+				var currentPos = d3.mouse(this);
+				console.log("move: ", currentPos);
+				if (draw) {
+					var path = currentPos.map(function(x) { return x - 1; });
+					svg.attr("d", path);
+				}
+			}*/
+
+		</script>
+	</body>
+</html>
