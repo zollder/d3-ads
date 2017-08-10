@@ -52,6 +52,7 @@
 			var currentPath;
 			var isDrawing = false;
 			var lines = [];
+			var intersections = [];
 
 			/*
 				Initializes main components and behavior.
@@ -158,6 +159,30 @@
 				svg.selectAll("circle").remove();
 			}
 
+			/*
+				Sweeps the cursor through data points.
+			*/
+			function sweep() {
+				// get X values for all points
+				var xVals = getPoints(lines).map(function(d) { return d[0]; });
+				xVals.sort(d3.descending);
+				console.log("Sorted X values: ", xVals.toString());
+
+				var id = setInterval(frame, 1000);
+				function frame() {
+					var x = xVals.pop();
+					var line = lineFunct([[x, 0], [x, height]]);
+					var cursor = svg.append("path")
+						.attr("d", line)
+						.style("stroke", "grey")
+						.style("stroke-width", 1);
+
+					if (xVals.length == 0) {
+						clearInterval(id);
+					}
+				}
+			}
+
 			/* Returns an array of terminal points for given lines. */
 			function getPoints(lines) {
 				var points = [];
@@ -169,9 +194,6 @@
 				return points;
 			}
 
-			function sweep() {
-
-			}
 /*			svg.on('mousedown', function() {
 					isDrawing = true;
 					startPos = d3.mouse(this);
