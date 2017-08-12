@@ -26,8 +26,12 @@
 				fill: steelblue;
 				fill-opacity: 0.3;
 			}
+			path.xCursor {
+				stroke: grey;
+				stroke-width: 1;
+			}
 			circle {
-				fill: red;
+				fill: blue;
 			}
 			path {
 				stroke: steelblue;
@@ -161,21 +165,26 @@
 
 			/*
 				Sweeps the cursor through data points.
+				Smoothly translates the line by x through all data points.
 			*/
 			function sweep() {
 				// get X values for all points
 				var xVals = getPoints(lines).map(function(d) { return d[0]; });
 				xVals.sort(d3.descending);
-				console.log("Sorted X values: ", xVals.toString());
+
+				var x = 0;
+				var xCursor = svg.append("path")
+					.attr("d", lineFunct([[x, 0], [x, height]]))
+					.attr('class', 'xCursor');
 
 				var id = setInterval(frame, 1000);
 				function frame() {
-					var x = xVals.pop();
-					var line = lineFunct([[x, 0], [x, height]]);
-					var cursor = svg.append("path")
-						.attr("d", line)
-						.style("stroke", "grey")
-						.style("stroke-width", 1);
+					x = xVals.pop();
+					console.log("xCursor: ", x);
+					xCursor.transition().duration(1000)
+						.attr("transform", function(){
+							return "translate(" + x + ",0)";
+						});
 
 					if (xVals.length == 0) {
 						clearInterval(id);
