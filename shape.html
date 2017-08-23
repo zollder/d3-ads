@@ -3,6 +3,8 @@
 	<head>
 		<meta charset="utf-8">
 		<title>Experiments with D3 shapes</title>
+		<!-- <script type="text/javascript" src="libs/require.js"></script> -->
+		<script type="text/javascript" src="libs/rbtree.min.js"></script>
 		<script type="text/javascript" src="https://d3js.org/d3.v4.min.js"></script>
 		<style type="text/css">
 			h1 {
@@ -42,7 +44,7 @@
 	</head>
 	<body>
 	    <div id="graph">
-			<h1>Connecting Two Points with a Line in D3.js</h1>
+			<h1>Line Sweep algorithm visualization</h1>
 		</div>
 		<div id="toolbox">
 				<input id="undoBtn" name="updateButton"  type="button" value="Undo" onclick="removeLast()" />
@@ -50,6 +52,7 @@
 				<input id="sweepBtn" name="sweepButton"  type="button" value="Sweep" onclick="sweep()" />
 		</div>
 		<script type="text/javascript" charset="utf-8">
+
 			var width = 600;
 			var height = 400;
 
@@ -127,10 +130,16 @@
 			*/
 			function onMouseUp() {
 				isDrawing = false;
-				endPos = d3.mouse(this);
+				var startPos = lines[lines.length - 1][0];
+				var endPos = d3.mouse(this);
 
-				// update line's end point
-				lines[lines.length - 1][1] = endPos;
+				// update line's end points
+				if (startPos[0] < endPos[0]) {
+					lines[lines.length - 1][1] = endPos;
+				} else {
+					lines[lines.length - 1][0] = endPos;
+					lines[lines.length - 1][1] = startPos;
+				}
 
 				// draw line's end point
 				svg.append("circle")
@@ -148,13 +157,12 @@
 			*/
 			function removeLast() {
 				console.log("Removed line: ", lines.pop());
-				console.log("lines: ", lines.toString());
 				svg.selectAll("path").data(lines).exit().remove();
 				svg.selectAll("circle").data(getPoints(lines)).exit().remove();
 			}
 
 			/*
-				Cleans the chart area.
+				Cleans the drawing area.
 				Removes all lines and associated terminal points.
 			*/
 			function clearAll() {
@@ -164,10 +172,84 @@
 			}
 
 			/*
-				Sweeps the cursor through data points.
-				Smoothly translates the line by x through all data points.
+				Sweeps the cursor through data all points.
+				Smoothly translates the line by x pixels b/w points.
 			*/
 			function sweep() {
+				// build key-value map of lines
+				var linesMap = new Map();
+				lines.forEach(function(line, indx) {
+					linesMap.set(indx, { id:indx, left:{ x:line[0][0], y:line[0][1] }, right:{ x:line[1][0], y:line[1][1] } });
+				});
+				console.log("Lines Map: ", linesMap);
+
+			/* 1. Init intersection point holder. */
+				var intersections = new Set();
+
+			/* 2. Init an empty active set that holds segments currently crossed by the sweep line. */
+
+				// contains segments cut by SL and sorted by Y (left point)
+				var active = new RBTree(function(a, b) {
+					return a.left.y - b.left.y;
+				});
+				console.log("Active: ", active);
+
+			/* 3. Init a priority queue (BST) and fill it with all segment's end-points sorted by X coordinate. */
+
+				// segment's end-points and intersection points sorted by X (unique key)
+				var events = new RBTree(function(a, b) { return a.x - b.x; });
+				linesMap.forEach(function(value, key) {
+					events.insert({ type:"left", x:value.left.x, y:value.left.y, lineId:key });
+					events.insert({ type:"right", x:value.right.x, y:value.right.y, lineId:key });
+				});
+				console.log("Events: ", events);
+
+				// get X values for all points
+				var xVals = getPoints(lines).map(function(d) { return d[0]; });
+				xVals.sort(d3.descending);
+
+				var x = 0;
+				var xCursor = svg.append("path")
+					.attr("d", lineFunct([[x, 0], [x, height]]))
+					.attr('class', 'xCursor');
+
+				var id = setInterval(frame, 1000);
+				function frame() {
+					var point = events.min();
+					events.remove(point);
+					console.log("Min Point: ", point);
+
+					var segment = linesMap.get(point.lineId);
+					if (isLeft(point)) {
+						console.log("Insert segment: ", segment);
+						active.insert(segment);
+					} else {
+						console.log("Remove segment: ", segment);
+						active.remove(segment);
+					}
+					console.log("Active: ", active);
+
+					x = xVals.pop();
+					console.log("xCursor: ", x);
+					xCursor.transition().duration(1000)
+						.attr("transform", function(){
+							return "translate(" + x + ",0)";
+						});
+					// detect line intersections
+					// add intersection points and report their coordinates
+
+					if (xVals.length == 0) {
+						clearInterval(id);
+					}
+				}
+				// ------------------------------------------------------------------------------------
+/*
+				var segmentPoints = getSegmentPoints(lines);
+				console.log("Segment points: ", JSON.stringify(segmentPoints));
+
+				var segments = getSegments(lines);
+				console.log("Segments: ", JSON.stringify(segments));
+
 				// get X values for all points
 				var xVals = getPoints(lines).map(function(d) { return d[0]; });
 				xVals.sort(d3.descending);
@@ -185,14 +267,96 @@
 						.attr("transform", function(){
 							return "translate(" + x + ",0)";
 						});
+					// detect line intersections
+					// add intersection points and report their coordinates
 
 					if (xVals.length == 0) {
 						clearInterval(id);
 					}
 				}
+*/
+				/*
+					0. Init intersection point holder.
+					1. Init an empty active set that holds segments currently crossed by the sweep line 
+					2. Init a priority queue (BST) and fill it with all segment's end-points sorted by X coordinate
+					3. While the BST is not empty, process each end-point:
+						3.1 Retrieve the point with min X coordinate
+						3.2 If it's a "left" endpoint
+							- insert the line the point belongs to into an active set sorted by left point's Y coordinate
+							- check neighbors, if any, for intersections
+							- ??? insert discovered intersection, if any, into the priority queue (BST)
+							- insert discovered intersection, if any, into the ordered set of intersections
+						3.3 If it's a "right" point
+							- remove the line the point belongs to from the active set
+							- check neighbors, if any, for intersections
+							- insert discovered intersections, into "found" set 
+				*/
+
+
+				return intersections;
 			}
 
-			/* Returns an array of terminal points for given lines. */
+			/*
+				Initilizes events tree data structure.
+				Creates new RB tree with corresponding comparator.
+				Inserts end points of known line segments into the tree.
+				Points are sorted by X coordinate.
+			*/
+			function initEventsTree() {
+				var eventsTree = new RBTree(function(a, b) { return a.x - b.x; });
+				// insert end points
+				console.log("Events: ", eventsTree);
+				return eventsTree;
+			}
+
+			/*
+				Intersection check.
+				Returns true if lines intersect, or false otherwise.
+			*/
+			function doIntersect(segment1, segment2) {
+				/*
+					Derive coefficients for each line equation (ax + by = c),
+					where a = y2 - y1, b = x1 - x2
+				*/
+				var x1 = segment1.left.point[0];
+				var x2 = segment1.right.point[0];
+				var y1 = segment1.left.point[1];
+				var y2 = segment1.right.point[1];
+				var a1 = y2 - y1;
+				var b1 = x1 - x2;
+				var c1 = a1*x1 + b1*y1;
+
+				var x3 = segment2.left.point[0];
+				var y3 = segment2.left.point[1];
+				var x4 = segment2.right.point[0];
+				var y5 = segment2.right.point[1];
+				var a2 = y4 - y3;
+				var b2 = x3 - x4;
+				var c2 = a2*x3 + b2*y3;
+
+				/*
+					Find intersection point (x,y) by solving the system of linear equations
+					using inverse matrix method:
+					A*X = B => X = Ainv*B, where Ainv = [coeff. matrix]/det
+					|a1 b1| * |x| = |c1| -> |x| =  1  * | b2 -b1| * |c1|
+					|a2 b2|   |y|   |c2|    |y|   det   |-a2  a1|   |c2|
+				*/
+				var det = a1*b2 - a2*b1;
+				if (det === 0) {	// lines are parallel
+					return false;
+				}
+
+				// line intersection coordinates
+				var x = (b2*c1 - b1*c2) / det;
+				var y = (a1*c2 - a2*c1) / det;
+
+				/* Segments intersect if (x,y) is within the segment's range */
+				return x > min(x1, x2) && x < max(x3, x4) && y > min(y1, y2) && y < max(y3, y4);
+			}
+
+			/*
+				Returns an array of terminal points for given lines.
+			*/
 			function getPoints(lines) {
 				var points = [];
 				for (var i = 0; i < lines.length; i++) {
@@ -203,6 +367,52 @@
 				return points;
 			}
 
+			/*
+				Maps lines to segment objects.
+				Returns a collection of segments.
+			*/
+			function getSegments(lines) {
+				return lines.map(function(val, indx) {
+					return {
+						id:  indx,
+						left: { id: indx, type: "left", point: val[0] },
+						right: { id: indx, type: "right", point: val[1] }
+					};
+				});
+			}
+
+			/*
+				Maps lines to point objects.
+				Sorts points in ascending order by x coordinate.
+				Returns a collection of sorted segment points.
+			*/
+			function getSegmentPoints(lines) {
+				var points = [];
+				lines.forEach(function(val, idx) {
+					points.push({ id: idx, type: "left", x: val[0][0], y: val[0][1] });
+					points.push({ id: idx, type: "right", x: val[1][0], y: val[1][1] });
+				});
+				points.sort(function(a, b) {
+					return a.x - b.x;
+				});
+				return points;
+			}
+
+			function isLeft(point) {
+				return point.type === "left";
+			}
+
+			function isRight(point) {
+				return point.type === "right";
+			}
+
+			function max(val1, val2) {
+				return val1 > val2 ? val1 : val2;
+			}
+
+			function min(val1, val2) {
+				return val1 < val2 ? val1 : val2;
+			}
 /*			svg.on('mousedown', function() {
 					isDrawing = true;
 					startPos = d3.mouse(this);
