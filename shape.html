@@ -176,12 +176,7 @@
 				Smoothly translates the line by x pixels b/w points.
 			*/
 			function sweep() {
-				// build key-value map of lines
-				var linesMap = new Map();
-				lines.forEach(function(line, indx) {
-					linesMap.set(indx, { id:indx, left:{ x:line[0][0], y:line[0][1] }, right:{ x:line[1][0], y:line[1][1] } });
-				});
-				console.log("Lines Map: ", linesMap);
+				var linesMap = initLineMap(lines);
 
 			/* 1. Init intersection point holder. */
 				var intersections = new Set();
@@ -197,84 +192,45 @@
 			/* 3. Init a priority queue (BST) and fill it with all segment's end-points sorted by X coordinate. */
 
 				// segment's end-points and intersection points sorted by X (unique key)
-				var events = new RBTree(function(a, b) { return a.x - b.x; });
-				linesMap.forEach(function(value, key) {
-					events.insert({ type:"left", x:value.left.x, y:value.left.y, lineId:key });
-					events.insert({ type:"right", x:value.right.x, y:value.right.y, lineId:key });
-				});
-				console.log("Events: ", events);
+				var events = initEventsTree(linesMap);
 
-				// get X values for all points
-				var xVals = getPoints(lines).map(function(d) { return d[0]; });
-				xVals.sort(d3.descending);
-
-				var x = 0;
+				// initialize the cursor
 				var xCursor = svg.append("path")
-					.attr("d", lineFunct([[x, 0], [x, height]]))
+					.attr("d", lineFunct([[0, 0], [0, height]]))
 					.attr('class', 'xCursor');
 
+				// loop through all events/points
 				var id = setInterval(frame, 1000);
 				function frame() {
 					var point = events.min();
 					events.remove(point);
-					console.log("Min Point: ", point);
 
 					var segment = linesMap.get(point.lineId);
 					if (isLeft(point)) {
 						console.log("Insert segment: ", segment);
 						active.insert(segment);
-					} else {
+
+						// check upper & lower neighbors for intersections
+						checkForNeighborIntersections(segment, events, active, intersections);
+						console.log("Intersections: ", intersections);
+					} else if (isRight(point)) {
 						console.log("Remove segment: ", segment);
+						checkForNeighborIntersections(segment, events, active, intersections);
 						active.remove(segment);
-					}
+					} else {} // intersection point - sweep silently, do nothing
 					console.log("Active: ", active);
 
-					x = xVals.pop();
-					console.log("xCursor: ", x);
+					// sweep cursor line to the current point
 					xCursor.transition().duration(1000)
 						.attr("transform", function(){
-							return "translate(" + x + ",0)";
+							return "translate(" + point.x + ",0)";
 						});
-					// detect line intersections
-					// add intersection points and report their coordinates
 
-					if (xVals.length == 0) {
+					if (events.size == 0) {
 						clearInterval(id);
 					}
 				}
 				// ------------------------------------------------------------------------------------
-/*
-				var segmentPoints = getSegmentPoints(lines);
-				console.log("Segment points: ", JSON.stringify(segmentPoints));
-
-				var segments = getSegments(lines);
-				console.log("Segments: ", JSON.stringify(segments));
-
-				// get X values for all points
-				var xVals = getPoints(lines).map(function(d) { return d[0]; });
-				xVals.sort(d3.descending);
-
-				var x = 0;
-				var xCursor = svg.append("path")
-					.attr("d", lineFunct([[x, 0], [x, height]]))
-					.attr('class', 'xCursor');
-
-				var id = setInterval(frame, 1000);
-				function frame() {
-					x = xVals.pop();
-					console.log("xCursor: ", x);
-					xCursor.transition().duration(1000)
-						.attr("transform", function(){
-							return "translate(" + x + ",0)";
-						});
-					// detect line intersections
-					// add intersection points and report their coordinates
-
-					if (xVals.length == 0) {
-						clearInterval(id);
-					}
-				}
-*/
 				/*
 					0. Init intersection point holder.
 					1. Init an empty active set that holds segments currently crossed by the sweep line 
@@ -296,40 +252,76 @@
 				return intersections;
 			}
 
+			// build key-value map of lines
+			function initLineMap(lines) {
+				var map = new Map();
+				lines.forEach(function(line, indx) {
+					map.set(indx, { id:indx, left:{ x:line[0][0], y:line[0][1] }, right:{ x:line[1][0], y:line[1][1] } });
+				});
+				console.log("Lines Map: ", map);
+				return map;
+			}
+
 			/*
-				Initilizes events tree data structure.
-				Creates new RB tree with corresponding comparator.
+				Initilizes and returns an events/points tree data structure.
+				Creates a new RB tree with events comparator.
 				Inserts end points of known line segments into the tree.
-				Points are sorted by X coordinate.
+				Points are sorted by X (key) coordinate.
 			*/
-			function initEventsTree() {
-				var eventsTree = new RBTree(function(a, b) { return a.x - b.x; });
-				// insert end points
-				console.log("Events: ", eventsTree);
-				return eventsTree;
+			function initEventsTree(linesMap) {
+				var events = new RBTree(function(a, b) { return a.x - b.x; });
+				linesMap.forEach(function(value, key) {
+					events.insert({ type:"left", x:value.left.x, y:value.left.y, lineId:key });
+					events.insert({ type:"right", x:value.right.x, y:value.right.y, lineId:key });
+				});
+				console.log("Events: ", events);
+				return events;
+			}
+
+			// check upper & lower neighbors for intersections
+			function checkForNeighborIntersections(segment, events, active, intersections) {
+				var iter, prev, next, ixPoint;
+				iter = active.findIter(segment);
+				if (iter && iter.prev()) {
+					ixPoint = getIntersectionPoint(segment, iter.data());
+					if (ixPoint) {
+						events.insert(ixPoint);
+						intersections.add(ixPoint);
+						drawIntersectionPoint(ixPoint);
+					}
+				}
+				iter = active.findIter(segment);
+				if (iter && iter.next()) {
+					ixPoint = getIntersectionPoint(segment, iter.data());
+					if (ixPoint) {
+						events.insert(ixPoint);
+						intersections.add(ixPoint);
+						drawIntersectionPoint(ixPoint);
+					}
+				}
 			}
 
 			/*
 				Intersection check.
-				Returns true if lines intersect, or false otherwise.
+				Returns an intersection point if lines intersect, or empty point otherwise.
 			*/
-			function doIntersect(segment1, segment2) {
+			function getIntersectionPoint(segment1, segment2) {
 				/*
 					Derive coefficients for each line equation (ax + by = c),
 					where a = y2 - y1, b = x1 - x2
 				*/
-				var x1 = segment1.left.point[0];
-				var x2 = segment1.right.point[0];
-				var y1 = segment1.left.point[1];
-				var y2 = segment1.right.point[1];
+				var x1 = segment1.left.x;
+				var x2 = segment1.right.x;
+				var y1 = segment1.left.y;
+				var y2 = segment1.right.y;
 				var a1 = y2 - y1;
 				var b1 = x1 - x2;
 				var c1 = a1*x1 + b1*y1;
 
-				var x3 = segment2.left.point[0];
-				var y3 = segment2.left.point[1];
-				var x4 = segment2.right.point[0];
-				var y5 = segment2.right.point[1];
+				var x3 = segment2.left.x;
+				var x4 = segment2.right.x;
+				var y3 = segment2.left.y;
+				var y4 = segment2.right.y;
 				var a2 = y4 - y3;
 				var b2 = x3 - x4;
 				var c2 = a2*x3 + b2*y3;
@@ -343,15 +335,24 @@
 				*/
 				var det = a1*b2 - a2*b1;
 				if (det === 0) {	// lines are parallel
-					return false;
+					console.log("Determinant = 0");
+					return null;
 				}
 
 				// line intersection coordinates
 				var x = (b2*c1 - b1*c2) / det;
 				var y = (a1*c2 - a2*c1) / det;
+				console.log("Global intersection {x:", x, " y:", y, "} ids [", segment1.id, ",", segment2.id);
 
 				/* Segments intersect if (x,y) is within the segment's range */
-				return x > min(x1, x2) && x < max(x3, x4) && y > min(y1, y2) && y < max(y3, y4);
+				var inRange = x > min(x1, x2) && x < max(x3, x4) && y > min(y1, y2) && y < max(y3, y4);
+				if (inRange) {
+					console.log("In range intersection {x:", x, " y:", y, "}");
+					return { type:"intersection", x:x, y:y, lineId:segment1.id };
+				}
+
+				console.log("Not in range");
+				return null;
 			}
 
 			/*
@@ -398,12 +399,28 @@
 				return points;
 			}
 
+			// draw discovered intersection point, if any
+			function drawIntersectionPoint(point) {
+				if (point) {
+					svg.append("circle")
+						.data([point])
+						.style("fill",'red')
+						.attr("r", 3)
+						.attr("cx", function(d) {return d.x; })
+						.attr("cy", function(d) {return d.y; });
+				}
+			}
+
 			function isLeft(point) {
 				return point.type === "left";
 			}
 
 			function isRight(point) {
 				return point.type === "right";
+			}
+
+			function isIntersection(point) {
+				return point.type === "intersection";
 			}
 
 			function max(val1, val2) {
@@ -413,125 +430,6 @@
 			function min(val1, val2) {
 				return val1 < val2 ? val1 : val2;
 			}
-/*			svg.on('mousedown', function() {
-					isDrawing = true;
-					startPos = d3.mouse(this);
-					console.log("start: ", startPos);
-
-					var line = lineFunct([startPos, startPos]);
-					path = svg.append("path").attr("d", line);
-				})
-				.on('mousemove', function() {
-					var endPos = d3.mouse(this).map(function(x){ return x - 1; });
-					if (isDrawing) {
-						var line = lineFunct([startPos, endPos]);
-						path.attr("d", line);
-					}
-				})
-				.on('mouseup', function() {
-					isDrawing = false;
-					console.log("end: ", d3.mouse(this));
-				});*/
-
-/*			var labelDistance = 0;
-			var width = 600, height = 400;
-			var margin = { top: 20, right: 80, bottom: 30, left: 50 };
-
-			var x = d3.scaleLinear().range([0, width]).domain([0,200]);
-			var y = d3.scaleLinear().range([height, 0]).domain([0,400]);
-
-			var xAxis = d3.axisBottom().scale(x).ticks(5);
-			var yAxis = d3.axisLeft().scale(y).ticks(5);
-
-			var svg = d3.select("body")
-				.append("svg")
-					.on("mousedown", mousedown)
-					.on("mouseup", mouseup)
-					.attr("width", width + margin.left + margin.right)
-					.attr("height", height + margin.top + margin.bottom)
-				.append("g")
-					.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
-
-			svg.append("g")
-				.attr("class", "xAxis")
-				.attr("transform", "translate(0," + height + ")")
-				.call(xAxis);
-			svg.append("g")
-				.attr("class", "yAxis")
-				.call(yAxis);
-*/
-			/* Add and configure lines */
-/*			
-			var lineFunct = d3.line()
-				.x(function (d) { return x(d[0]); })
-				.y(function (d) { return y(d[1]); });
-
-			var drawLines = function(lines) {
-				for (var i = 0; i < lines.length; i++) {
-					svg.append("path")
-						.datum(lines[i])
-						.attr("class", "line")
-						.attr("d", lineFunct);
-				}
-			}
-
-			var linesToPoints = function(lines) {
-				var points = [];
-				for (var i = 0; i < lines.length; i++) {
-					for (var j = 0; j < lines[i].length; j++) {
-						points.push(lines[i][j]);
-					}
-				}
-				return points;
-			}*/
-
-			/* Prepare data */
-/*			var lines = [
-			  [[ 20, 20 ], [ 70, 40 ]],
-			  [[ 40, 40 ], [ 60, 70 ]],
-			  [[ 80, 20 ], [ 80, 60 ]]
-			]
-			drawLines(lines);*/
-
-			/* Add and configure line points */
-/*			var points = linesToPoints(lines);
-			svg.selectAll("point.circle")
-				.data(points)
-				.enter()
-				.append("circle")
-				.attr("class", 'point')
-				.attr("r", 3)
-				.attr("cx", function(d) { return x(d[0]); })
-				.attr("cy", function(d) { return y(d[1]); });
-
-			var newline;
-			var draw = false;
-			function mousedown() {
-				draw = true;
-				var startPos = d3.mouse(this);
-				console.log("down: ", startPos);
-				svg.append("path")
-					// .datum(newline)
-					.attr("class", "line")
-					.attr("d", lineFunct([startPos, startPos]));
-				svg.on("mousemove", mousemove);
-			}
-
-			function mouseup() {
-				var endPos = d3.mouse(this);
-				console.log("up: ", endPos);
-				// svg.on("mousemove", null);
-				draw = false;
-			}
-
-			function mousemove() {
-				var currentPos = d3.mouse(this);
-				console.log("move: ", currentPos);
-				if (draw) {
-					var path = currentPos.map(function(x) { return x - 1; });
-					svg.attr("d", path);
-				}
-			}*/
 
 		</script>
 	</body>
