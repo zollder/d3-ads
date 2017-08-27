@@ -171,25 +171,37 @@
 				svg.selectAll("circle").remove();
 			}
 
+			// ------------------------------------------------------------------------------------
+			/*
+				0. Init intersection point holder.
+				1. Init an empty active set that holds segments currently crossed by the sweep line 
+				2. Init a priority queue (BST) and fill it with all segment's end-points sorted by X coordinate
+				3. While the BST is not empty, process each end-point:
+					3.1 Retrieve the point with min X coordinate
+					3.2 If it's a "left" endpoint
+						- insert the line the point belongs to into an active set sorted by left point's Y coordinate
+						- check neighbors, if any, for intersections
+						- ??? insert discovered intersection, if any, into the priority queue (BST)
+						- insert discovered intersection, if any, into the ordered set of intersections
+					3.3 If it's a "right" point
+						- remove the line the point belongs to from the active set
+						- check neighbors, if any, for intersections
+						- insert discovered intersections, into "found" set 
+			*/
+
 			/*
 				Sweeps the cursor through data all points.
 				Smoothly translates the line by x pixels b/w points.
 			*/
 			function sweep() {
 				var linesMap = initLineMap(lines);
-
-			/* 1. Init intersection point holder. */
 				var intersections = new Set();
-
-			/* 2. Init an empty active set that holds segments currently crossed by the sweep line. */
 
 				// contains segments cut by SL and sorted by Y (left point)
 				var active = new RBTree(function(a, b) {
 					return a.left.y - b.left.y;
 				});
 				console.log("Active: ", active);
-
-			/* 3. Init a priority queue (BST) and fill it with all segment's end-points sorted by X coordinate. */
 
 				// segment's end-points and intersection points sorted by X (unique key)
 				var events = initEventsTree(linesMap);
@@ -230,29 +242,10 @@
 						clearInterval(id);
 					}
 				}
-				// ------------------------------------------------------------------------------------
-				/*
-					0. Init intersection point holder.
-					1. Init an empty active set that holds segments currently crossed by the sweep line 
-					2. Init a priority queue (BST) and fill it with all segment's end-points sorted by X coordinate
-					3. While the BST is not empty, process each end-point:
-						3.1 Retrieve the point with min X coordinate
-						3.2 If it's a "left" endpoint
-							- insert the line the point belongs to into an active set sorted by left point's Y coordinate
-							- check neighbors, if any, for intersections
-							- ??? insert discovered intersection, if any, into the priority queue (BST)
-							- insert discovered intersection, if any, into the ordered set of intersections
-						3.3 If it's a "right" point
-							- remove the line the point belongs to from the active set
-							- check neighbors, if any, for intersections
-							- insert discovered intersections, into "found" set 
-				*/
-
-
 				return intersections;
 			}
 
-			// build key-value map of lines
+			/* Initializes a new key-value map of lines and fills it with line data */ 
 			function initLineMap(lines) {
 				var map = new Map();
 				lines.forEach(function(line, indx) {
@@ -278,7 +271,7 @@
 				return events;
 			}
 
-			// check upper & lower neighbors for intersections
+			/* Checks upper & lower neighbor segments for intersections with the current (specified) segment */
 			function checkForNeighborIntersections(segment, events, active, intersections) {
 				var iter, prev, next, ixPoint;
 				iter = active.findIter(segment);
@@ -303,7 +296,7 @@
 
 			/*
 				Intersection check.
-				Returns an intersection point if lines intersect, or empty point otherwise.
+				Returns an intersection point if lines intersect, or null otherwise.
 			*/
 			function getIntersectionPoint(segment1, segment2) {
 				/*
@@ -355,9 +348,7 @@
 				return null;
 			}
 
-			/*
-				Returns an array of terminal points for given lines.
-			*/
+			/* Returns an array of terminal points for given lines. */
 			function getPoints(lines) {
 				var points = [];
 				for (var i = 0; i < lines.length; i++) {
@@ -399,7 +390,7 @@
 				return points;
 			}
 
-			// draw discovered intersection point, if any
+			/* Draws specified intersection point */
 			function drawIntersectionPoint(point) {
 				if (point) {
 					svg.append("circle")
