@@ -286,50 +286,55 @@
 					else {	// intersection point
 						// add this point to intersections set/list
 						console.log("Processing intersection point:", point);
-						intersections.add(JSON.stringify({ x:point.x, y:point.y }));
-						drawIntersectionPoint(point);
+						var ixPointAsString = JSON.stringify({ x:point.x, y:point.y });
+						if (!intersections.has(ixPointAsString)) {
+							intersections.add(ixPointAsString);
+							drawIntersectionPoint(point);
 
-						// retrieve intersecting segments
-						console.log("Segments: :", point.ids);
-						var segment1 = linesMap.get(point.ids[0]);
-						var segment2 = linesMap.get(point.ids[1]);
+							// retrieve intersecting segments
+							console.log("Segments: :", point.ids);
+							var segment1 = linesMap.get(point.ids[0]);
+							var segment2 = linesMap.get(point.ids[1]);
 
-						// swap segment positions in the active tree
-						printActiveTree(active);
-						if (active.remove(segment1) &&  active.remove(segment2)) {
-							var xRef = point.x + 0.001;
-							active.insert(updateRefPoint(xRef, segment1));
-							active.insert(updateRefPoint(xRef, segment2));
+							// swap segment positions in the active tree
 							printActiveTree(active);
+							if (active.remove(segment1) &&  active.remove(segment2)) {
+								var xRef = point.x + 0.001;
+								active.insert(updateRefPoint(xRef, segment1));
+								active.insert(updateRefPoint(xRef, segment2));
+								printActiveTree(active);
 
-							var upper, lower;
-							if (segment1.ref.y < segment2.ref.y) {
-								upper = segment1;
-								lower = segment2
+								var upper, lower;
+								if (segment1.ref.y < segment2.ref.y) {
+									upper = segment1;
+									lower = segment2
+								} else {
+									upper = segment2;
+									lower = segment1
+								}
+								var upperNeighbor = getPrevious(active, upper);
+								ixUpperPoint = getIntersectionPoint(upper, upperNeighbor);
+								if (ixUpperPoint) {
+									events.insert(ixUpperPoint);
+								}
+								ixCrossUpperPoint = getIntersectionPoint(upper, lowerNeighbor);
+								if (ixCrossUpperPoint) {
+									console.log("Remove intersection: ", ixCrossUpperPoint.ids);
+									events.remove(ixCrossUpperPoint);
+								}
+								var lowerNeighbor = getNext(active, lower);
+								ixLowerPoint = getIntersectionPoint(lower, lowerNeighbor);
+								if (ixLowerPoint) {
+									events.insert(ixLowerPoint);
+								}
+								ixCrossLowerPoint = getIntersectionPoint(lower, upperNeighbor);
+								if (ixCrossLowerPoint) {
+									console.log("Remove intersection: ", ixCrossLowerPoint.ids);
+									events.remove(ixCrossLowerPoint);
+								}
 							} else {
-								upper = segment2;
-								lower = segment1
+								console.log("Failed to swap segments: ", upper, lower);
 							}
-							var upperNeighbor = getPrevious(active, upper);
-							ixUpperPoint = getIntersectionPoint(upper, upperNeighbor);
-							if (ixUpperPoint) {
-								events.insert(ixUpperPoint);
-							}
-							ixCrossUpperPoint = getIntersectionPoint(upper, lowerNeighbor);
-							if (ixCrossUpperPoint) {
-								events.remove(ixCrossUpperPoint);
-							}
-							var lowerNeighbor = getNext(active, lower);
-							ixLowerPoint = getIntersectionPoint(lower, lowerNeighbor);
-							if (ixLowerPoint) {
-								events.insert(ixLowerPoint);
-							}
-							ixCrossLowerPoint = getIntersectionPoint(lower, upperNeighbor);
-							if (ixCrossLowerPoint) {
-								events.remove(ixCrossLowerPoint);
-							}
-						} else {
-							console.log("Failed to swap segments: ", upper, lower);
 						}
 					}
 					events.remove(point);
