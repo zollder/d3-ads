@@ -195,32 +195,230 @@
 						- insert discovered intersections, into "found" set 
 			*/
 
-			var EventPoint = {
-				type: null,
-				x: null,
-				y: null,
-				lineId: null,
+			// TODO: define Point object and use it in EventPoint and Segment
+			var EventPoint = function EventPoint (type, id, x, y) {
+				this.type = type;
+				this.lineId = id;
+				this.x = x;
+				this.y = y;
+				this.ids = null;
+			};
+			EventPoint.prototype = {
+				constructor: EventPoint,
 
-				isLeft: function(point) {
-					return point.type === "left";
+				isLeft: function() {
+					return this.type === "left";
 				},
 
-				isRight: function(point) {
-					return point.type === "right";
+				isRight: function() {
+					return this.type === "right";
 				},
 
-				isIntersection: function(point) {
-					return point.type === "intersection";
+				isIntersection: function() {
+					return this.type === "intersection" && this.ids != null;
+				},
+
+				/*
+				 Verifies if the point is in range of the segment.
+				 Returns true if the point lies within segment's projections, or false otherwise.
+				 */
+				inRange: function(left, right) {
+					if (!left || !right)
+						return false;
+
+					return this.x >= this.min(left.x, right.x)
+						&& this.y >= this.min(left.y, right.y)
+						&& this.x <= this.max(left.x, right.x)
+						&& this.y <= this.max(left.y, right.y);
+				},
+
+				/* Draws intersection point (itself) */
+				drawIntersection: function() {
+					if (this.isIntersection()) {
+						svg.append("circle")
+								.data([this])
+								.style("fill",'red')
+								.attr("r", 3)
+								.attr("cx", function(d) { return d.x; })
+								.attr("cy", function(d) { return d.y; });
+					} else {
+						console.log("Not an intersection point", this);
+					}
+					return this;
+				},
+
+				/* Draws specified point, TODO: find a better place/use-case (segment?) */
+				drawPoint: function(point) {
+					svg.append("circle")
+						.data([point])
+						.style("fill",'green')
+						.attr("r", 3)
+						.attr("cx", function(d) { return d.x; })
+						.attr("cy", function(d) { return d.y; });
+					return this;
+				},
+
+				drawLabel: function() {
+					svg.append("text")
+							.data([this])
+							.attr("x", function(d) { return d.x; })
+							.attr("y", function(d) { return d.y; })
+							.attr("dx", "-10")
+							.attr("dy", "-5")
+							.text(function(d) { return d.lineId; });
+				},
+
+				min: function(val1, val2) {
+					return val1 < val2 ? val1 : val2;
+				},
+
+				max: function(val1, val2) {
+					return val1 > val2 ? val1 : val2;
+				}
+			};
+				
+			var Segment = function Segment (id, left, right) {
+				this.id = id;
+				this.ref = left;
+				this.left = left;
+				this.right = right;
+			};
+			Segment.prototype = {
+				constructor: Segment,
+
+				setRef: function(refPoint) {
+					this.ref = refPoint;
+					return this;
+				},
+
+				updateRefByX : function(xRef) {
+					var x1 = this.left.x;
+					var x2 = this.right.x;
+					var y1 = this.left.y;
+					var y2 = this.right.y;
+					var A = y2 - y1;
+					var B = x1 - x2;
+					var C = A*x1 + B*y1;
+					// Ax + By = C => y = (C - Ax) / B
+					var yRef = (C - A*xRef)/B;
+					return this.setRef({x:xRef, y:yRef});
+				},
+
+				updateRefByY: function(yRef) {
+					var x1 = this.left.x;
+					var x2 = this.right.x;
+					var y1 = this.left.y;
+					var y2 = this.right.y;
+					var A = y2 - y1;
+					var B = x1 - x2;
+					var C = A*x1 + B*y1;
+					// Ax + By = C => x = (C - By) / A
+					var xRef = (C - B*yRef)/A;
+					return this.setRef({x:xRef, y:yRef});
 				}
 			};
 
-			var LineSegment = {
+			var SweepLine = {
+				tree: null,
 
+				init: function() {
+					console.log("Initializing SL tree");
+					this.tree = new RBTree(function(a, b) {
+						return a.ref.y - b.ref.y;
+					});
+					return this;
+				},
+
+				insert: function(segment) {
+					if (!this.tree) {
+						this.init();
+					}
+					if (!this.tree.insert(segment)) {
+						console.log("Segment exists:", segment.id);
+					}
+					return this;
+				},
+
+				insertAndReorder: function(segment) {
+					return this.insert(segment).reorder(segment.ref.x);
+				},
+
+				remove: function(segment) {
+					if (!this.tree) {
+						console.log("SL tree is not initialized");
+					}
+					if (!this.tree.remove(segment)) {
+						console.log("Segment doesn't exists:", segment.id);
+					}
+					return this;
+				},
+
+				reorder: function(xRef) {
+					var sl = this;
+					this.getNodes().forEach(function(node) {
+						sl.remove(node).insert(node.updateRefByX(xRef));
+					});
+					return this;
+				},
+
+				next: function(segment) {
+					if (!this.tree || !segment) {
+						return null;
+					}
+					var iterator = this.tree.findIter(segment);
+					if (iterator && iterator.next()) {
+						return iterator.data();
+					}
+					return null;
+				},
+
+				previous: function(segment) {
+					if (!this.tree || !segment) {
+						return null;
+					}
+					var iterator = this.tree.findIter(segment);
+					if (iterator && iterator.prev()) {
+						return iterator.data();
+					}
+					return null;
+				},
+
+				getNodes: function () {
+					var nodes = [];
+					if (!this.tree) {
+						return nodes;
+					}
+					this.tree.each(function(node) {
+						nodes.push(node);
+					});
+					return nodes;
+				},
+
+				print: function() {
+					if (!this.tree) {
+						console.log("SL tree is not initialized");
+						return;
+					}
+					var printSet = [];
+					this.tree.each(function(segment) {
+						printSet.push(segment.id);
+					});
+					console.log("SL tree: ", printSet);
+				},
+
+				swap: function(seg1, seg2) {
+					this.print();
+					console.log("SL swapping: ", seg1.id, seg2.id);
+					if (this.tree.remove(seg1) && this.tree.remove(seg2)) {
+						var yRefSeg1 = seg1.ref.y;
+						var yRefSeg2 = seg2.ref.y;
+						this.insert(seg1.updateRefByY(yRefSeg2));
+						this.insert(seg2.updateRefByY(yRefSeg1));
+					}
+					this.print();
+					return this;
+				}
 			};
-
-			var BTree = {
-
-			}
 
 			/*
 				Sweeps the cursor through data all points.
@@ -231,10 +429,7 @@
 				var intersections = new Set();
 
 				// contains segments cut by SL and sorted by Y (left point)
-				// TODO: add support for positions and element swaps
-				var active = new RBTree(function(a, b) {
-					return a.ref.y - b.ref.y;
-				});
+				var active = SweepLine.init();
 
 				// segment's end-points and intersection points sorted by X (unique key)
 				var events = initEventsTree(linesMap);
@@ -244,43 +439,44 @@
 					.attr("d", lineFunct([[0, 0], [0, height]]))
 					.attr('class', 'xCursor');
 
-				// loop through all events/points
+				// loop through all events/points with 1s interval
 				var intervalId = setInterval(frame, 1000);
 				function frame() {
-					printEventsTree(events);
-
 					var point = events.min();
 					var segment = linesMap.get(point.lineId);
+					console.log("Event", point.lineId, "[", point.x, ",", point.y, "]");
 
-					if (isLeft(point)) {
-						console.log("Insert segment: ", segment.id);
-						drawLineLable(point);
-						active.insert(segment); // TODO: add logic to manage ref point duplicates
+					if (point.isLeft()) {
+						console.log("SL inserting: ", segment.id);
+						point.drawLabel();
+						active.insertAndReorder(segment);
+						active.print();
 
-						var ixUpperPoint = getIntersectionPoint(segment, getPrevious(active, segment));
+						var ixUpperPoint = getIntersectionPoint(segment, active.previous(segment));
 						if (ixUpperPoint) {
 							console.log("Add intersection event: ", ixUpperPoint);
 							events.insert(ixUpperPoint);
 						}
-						var ixLowerPoint = getIntersectionPoint(segment, getNext(active, segment));
+						var ixLowerPoint = getIntersectionPoint(segment, active.next(segment));
 						if (ixLowerPoint) {
 							console.log("Add intersection event: ", ixLowerPoint);
 							events.insert(ixLowerPoint);
 						}
-						var ixPoint = getIntersectionPoint(getNext(active, segment), getPrevious(active, segment));
+						var ixPoint = getIntersectionPoint(active.next(segment), active.previous(segment));
 						if (ixPoint) {
 							console.log("Remove intersection event: ", ixPoint);
 							events.remove(ixPoint);
 						}
 					}
-					else if (isRight(point)) {
-						printActiveTree(active);
+					else if (point.isRight()) {
+						active.print();
 
-						var ixPoint = getIntersectionPoint(getPrevious(active, segment), getNext(active, segment));
+						var ixPoint = getIntersectionPoint(active.previous(segment), active.next(segment));
 						if (ixPoint) {
+							console.log("Add intersection event: ", ixPoint);
 							events.insert(ixPoint);
 						}
-						console.log("Remove from active: ", segment.id);
+						console.log("SL removing: ", segment.id);
 						active.remove(segment);
 					}
 					else {	// intersection point
@@ -289,7 +485,7 @@
 						var ixPointAsString = JSON.stringify({ x:point.x, y:point.y });
 						if (!intersections.has(ixPointAsString)) {
 							intersections.add(ixPointAsString);
-							drawIntersectionPoint(point);
+							point.drawIntersection();
 
 							// retrieve intersecting segments
 							console.log("Segments: :", point.ids);
@@ -297,44 +493,39 @@
 							var segment2 = linesMap.get(point.ids[1]);
 
 							// swap segment positions in the active tree
-							printActiveTree(active);
-							if (active.remove(segment1) &&  active.remove(segment2)) {
-								var xRef = point.x + 0.001;
-								active.insert(updateRefPoint(xRef, segment1));
-								active.insert(updateRefPoint(xRef, segment2));
-								printActiveTree(active);
+							active.swap(segment1, segment2);
 
-								var upper, lower;
-								if (segment1.ref.y < segment2.ref.y) {
-									upper = segment1;
-									lower = segment2
-								} else {
-									upper = segment2;
-									lower = segment1
-								}
-								var upperNeighbor = getPrevious(active, upper);
-								ixUpperPoint = getIntersectionPoint(upper, upperNeighbor);
-								if (ixUpperPoint) {
-									events.insert(ixUpperPoint);
-								}
-								ixCrossUpperPoint = getIntersectionPoint(upper, lowerNeighbor);
-								if (ixCrossUpperPoint) {
-									console.log("Remove intersection: ", ixCrossUpperPoint.ids);
-									events.remove(ixCrossUpperPoint);
-								}
-								var lowerNeighbor = getNext(active, lower);
-								ixLowerPoint = getIntersectionPoint(lower, lowerNeighbor);
-								if (ixLowerPoint) {
-									events.insert(ixLowerPoint);
-								}
-								ixCrossLowerPoint = getIntersectionPoint(lower, upperNeighbor);
-								if (ixCrossLowerPoint) {
-									console.log("Remove intersection: ", ixCrossLowerPoint.ids);
-									events.remove(ixCrossLowerPoint);
-								}
+							var upper, lower;
+							if (segment1.ref.y < segment2.ref.y) {
+								upper = segment1;
+								lower = segment2
 							} else {
-								console.log("Failed to swap segments: ", upper, lower);
+								upper = segment2;
+								lower = segment1
 							}
+							var upperNeighbor = active.previous(upper);
+							ixUpperPoint = getIntersectionPoint(upper, upperNeighbor);
+							if (ixUpperPoint) {
+								console.log("Add intersection event: ", ixUpperPoint.ids);
+								events.insert(ixUpperPoint);
+							}
+							ixCrossUpperPoint = getIntersectionPoint(upper, lowerNeighbor);
+							if (ixCrossUpperPoint) {
+								console.log("Remove intersection event: ", ixCrossUpperPoint.ids);
+								events.remove(ixCrossUpperPoint);
+							}
+							var lowerNeighbor = active.next(lower);
+							ixLowerPoint = getIntersectionPoint(lower, lowerNeighbor);
+							if (ixLowerPoint) {
+								console.log("Add intersection event: ", ixLowerPoint.ids);
+								events.insert(ixLowerPoint);
+							}
+							ixCrossLowerPoint = getIntersectionPoint(lower, upperNeighbor);
+							if (ixCrossLowerPoint) {
+								console.log("Remove intersection: ", ixCrossLowerPoint.ids);
+								events.remove(ixCrossLowerPoint);
+							}
+
 						}
 					}
 					events.remove(point);
@@ -352,43 +543,12 @@
 				}
 			}
 
-			function getPrevious(tree, item) {
-				if (!tree || ! item) {
-					return null;
-				}
-				var iter = tree.findIter(item);
-				if (iter && iter.prev()) {
-					return iter.data();
-				}
-				return null;
-			}
-
-			function getNext(tree, item) {
-				if (!tree || ! item) {
-					return null;
-				}
-				var iter = tree.findIter(item);
-				if (iter && iter.next()) {
-					return iter.data();
-				}
-				return null;
-			}
-
 			function printActiveTree(tree) {
 				var printSet = [];
 				tree.each(function(item) {
 					printSet.push(item.id);
 				});
 				console.log("Active set: ", printSet);
-			}
-
-			// TODO: temp function, remove when done
-			function getPrintSet(tree) {
-				var printSet = [];
-				tree.each(function(item) {
-					printSet.push(item.id);
-				});
-				return printSet;
 			}
 
 			function printEventsTree(tree) {
@@ -403,19 +563,14 @@
 			function initLineMap(lines) {
 				var map = new Map();
 				lines.forEach(function(line, indx) {
-					map.set(indx, {
-						id:indx,
-						ref:{ x:line[0][0], y:line[0][1] },
-						left:{ x:line[0][0], y:line[0][1] },
-						right:{ x:line[1][0], y:line[1][1] }
-					});
+					map.set(indx, new Segment(indx, { x:line[0][0], y:line[0][1] }, { x:line[1][0], y:line[1][1] }));
 				});
 				console.log("Lines Map: ", map);
 				return map;
 			}
 
 			/*
-				Initilizes and returns an events/points tree data structure.
+				Initializes and returns an events/points tree data structure.
 				Creates a new RB tree with events comparator.
 				Inserts end points of known line segments into the tree.
 				Points are sorted by X (key) coordinate.
@@ -423,8 +578,8 @@
 			function initEventsTree(linesMap) {
 				var events = new RBTree(function(a, b) { return a.x - b.x; });
 				linesMap.forEach(function(value, key) {
-					events.insert({ type:"left", x:value.left.x, y:value.left.y, lineId:key });
-					events.insert({ type:"right", x:value.right.x, y:value.right.y, lineId:key });
+					events.insert(new EventPoint("left", key, value.left.x, value.left.y));
+					events.insert(new EventPoint("right", key, value.right.x, value.right.y));
 				});
 				console.log("Events: ", events);
 				return events;
@@ -477,41 +632,15 @@
 				// console.log("Global intersection {x:", x, " y:", y, "} ids [", segment1.id, ",", segment2.id, "]");
 
 				/* Segments intersect if (x,y) is within each segment's range */
-				var point = { type:"intersection", x:x, y:y, ids:[segment1.id, segment2.id] };
-				if (inRange(point, segment1) && inRange(point, segment2)) {
+				var point = new EventPoint("intersection", null, x, y);
+				point.ids = [segment1.id, segment2.id];
+				if (point.inRange(segment1.left, segment1.right) && point.inRange(segment2.left, segment2.right)) {
 					console.log("In range intersection {x:", x.toFixed(2), " y:", y.toFixed(2), "}");
 					return point;
 				}
 
-				console.log("Not in range");
+				console.log("Not in range: [", segment1.id, segment2.id, "]");
 				return null;
-			}
-
-			function updateRefPoint(xRef, segment) {
-				var x1 = segment.left.x;
-				var x2 = segment.right.x;
-				var y1 = segment.left.y;
-				var y2 = segment.right.y;
-				var A = y2 - y1;
-				var B = x1 - x2;
-				var C = A*x1 + B*y1;
-				// Ax + By = C => y = (C - Ax) / B
-				segment.ref.x = xRef;
-				segment.ref.y = (C - A*xRef)/B;
-				return segment;
-			}
-
-			function getUpdatedRefPoint(xRef, segment) {
-				var x1 = segment.left.x;
-				var x2 = segment.right.x;
-				var y1 = segment.left.y;
-				var y2 = segment.right.y;
-				var A = y2 - y1;
-				var B = x1 - x2;
-				var C = A*x1 + B*y1;
-				// Ax + By = C => y = (C - Ax) / B
-				var yRef = (C - A*xRef)/B;
-				return {x:xRef, y:yRef};
 			}
 
 			/* Returns an array of terminal points for given lines. */
@@ -556,18 +685,6 @@
 				return points;
 			}
 
-			/* Draws specified intersection point */
-			function drawIntersectionPoint(point) {
-				if (point) {
-					svg.append("circle")
-						.data([point])
-						.style("fill",'red')
-						.attr("r", 3)
-						.attr("cx", function(d) { return d.x; })
-						.attr("cy", function(d) { return d.y; });
-				}
-			}
-
 			function drawRefPoint(point) {
 				if (point) {
 					svg.append("circle")
@@ -577,49 +694,6 @@
 						.attr("cx", function(d) { return d.x; })
 						.attr("cy", function(d) { return d.y; });
 				}
-			}
-
-			function drawLineLable(point) {
-				if (point) {
-					svg.append("text")
-						.data([point])
-						.attr("x", function(d) { return d.x; })
-						.attr("y", function(d) { return d.y; })
-						.attr("dx", "-10")
-						.attr("dy", "-5")
-						.text(function(d) { return d.lineId; });
-				}
-			}
-
-			function isLeft(point) {
-				return point.type === "left";
-			}
-
-			function isRight(point) {
-				return point.type === "right";
-			}
-
-			function isIntersection(point) {
-				return point.type === "intersection";
-			}
-
-			/*
-				Verifies if the point is in range of the segment.
-				Returns true if the point lies within segment's projections, or false otherwise.
-			*/
-			function inRange(point, segment) {
-				return point.x >= min(segment.left.x, segment.right.x)
-					&& point.y >= min(segment.left.y, segment.right.y)
-					&& point.x <= max(segment.left.x, segment.right.x)
-					&& point.y <= max(segment.left.y, segment.right.y);
-			}
-
-			function min(val1, val2) {
-				return val1 < val2 ? val1 : val2;
-			}
-
-			function max(val1, val2) {
-				return val1 > val2 ? val1 : val2;
 			}
 
 		</script>
