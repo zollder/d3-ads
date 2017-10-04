@@ -181,8 +181,8 @@
 			/*
 				0. Init intersection point holder.
 				1. Init an empty active set that holds segments currently crossed by the sweep line 
-				2. Init a priority queue (BST) and fill it with all segment's end-points sorted by X coordinate
-				3. While the BST is not empty, process each end-point:
+				2. Init an events queue (BST) and fill it with all segment's end-points sorted by X coordinate
+				3. While the BST is not empty, process each event:
 					3.1 Retrieve the point with min X coordinate
 					3.2 If it's a "left" endpoint
 						- insert the line the point belongs to into an active set sorted by left point's Y coordinate
@@ -192,7 +192,10 @@
 					3.3 If it's a "right" point
 						- remove the line the point belongs to from the active set
 						- check neighbors, if any, for intersections
-						- insert discovered intersections, into "found" set 
+						- insert discovered intersections, into "found" set
+					3.4 If it's an intersection point
+						-
+						- 
 			*/
 
 			var EventsQueue = {
@@ -217,8 +220,8 @@
 					if (linesMap && this.init()) {
 						var eq = this;
 						linesMap.forEach(function(value, key) {
-							eq.tree.insert(new EventPoint("left", key, value.left.x, value.left.y));
-							eq.tree.insert(new EventPoint("right", key, value.right.x, value.right.y));
+							eq.tree.insert(new EventPoint("left", key, value.left.x, value.left.y, null));
+							eq.tree.insert(new EventPoint("right", key, value.right.x, value.right.y, null));
 						});
 					} else {
 						console.log("Lines map is undefined.");
@@ -247,11 +250,12 @@
 				},
 
 				insertIntersection: function(event) {
+					if (event && !event.isIntersection()) {
+						console.log("Not an intersection event: ", event);
+					}
 					if (event && (this.isEmpty() || event.x > this.tree.min().x)) {
 						console.log("Add intersection event: ", event);
 						this.tree.insert(event);
-					} else {
-						console.log("Failed to add insertion: ", event);
 					}
 					return this;
 				},
@@ -269,12 +273,12 @@
 			};
 
 			// TODO: define Point object and use it in EventPoint and Segment
-			var EventPoint = function EventPoint (type, id, x, y) {
+			var EventPoint = function EventPoint (type, id, x, y, ids) {
 				this.type = type;
 				this.lineId = id;
 				this.x = x;
 				this.y = y;
-				this.ids = null;
+				this.ids = ids;
 			};
 			EventPoint.prototype = {
 				constructor: EventPoint,
@@ -432,7 +436,7 @@
 
 				reorder: function(xRef) {
 					var sl = this;
-					console.log("SL reorder: ", segment.id);
+					console.log("SL reorder all");
 					this.getNodes().forEach(function(node) {
 						sl.remove(node).insert(node.updateRefByX(xRef));
 					});
@@ -530,27 +534,14 @@
 						active.insertAndReorder(segment);
 						active.print();
 
-						var ixUpperPoint = getIntersectionPoint(segment, active.previous(segment));
-						if (ixUpperPoint) {
-							events.insertIntersection(ixUpperPoint);
-						}
-						var ixLowerPoint = getIntersectionPoint(segment, active.next(segment));
-						if (ixLowerPoint) {
-							events.insertIntersection(ixLowerPoint);
-						}
-						var ixPoint = getIntersectionPoint(active.next(segment), active.previous(segment));
-						if (ixPoint) {
-							events.remove(ixPoint);
-						}
+						events.insertIntersection(getIntersection(segment, active.previous(segment)));
+						events.insertIntersection(getIntersection(segment, active.next(segment)));
+						events.remove(getIntersection(active.next(segment), active.previous(segment)));
 					}
 					else if (point.isRight()) {
 						active.print();
 
-						var ixPoint = getIntersectionPoint(active.previous(segment), active.next(segment));
-						if (ixPoint) {
-							events.insertIntersection(ixPoint);
-						}
-
+						events.insertIntersection(getIntersection(active.previous(segment), active.next(segment)));
 						active.remove(segment);
 					}
 					else {	// intersection point
@@ -576,24 +567,10 @@
 							upper = segment2;
 							lower = segment1
 						}
-						var upperNeighbor = active.previous(upper);
-						ixUpperPoint = getIntersectionPoint(upper, upperNeighbor);
-						if (ixUpperPoint) {
-							events.insertIntersection(ixUpperPoint);
-						}
-						ixCrossUpperPoint = getIntersectionPoint(upper, lowerNeighbor);
-						if (ixCrossUpperPoint) {
-							events.remove(ixCrossUpperPoint);
-						}
-						var lowerNeighbor = active.next(lower);
-						ixLowerPoint = getIntersectionPoint(lower, lowerNeighbor);
-						if (ixLowerPoint) {
-							events.insertIntersection(ixLowerPoint);
-						}
-						ixCrossLowerPoint = getIntersectionPoint(lower, upperNeighbor);
-						if (ixCrossLowerPoint) {
-							events.remove(ixCrossLowerPoint);
-						}
+						events.insertIntersection(getIntersection(upper, active.previous(upper)));
+						events.remove(getIntersection(upper, active.next(lower)));
+						events.insertIntersection(getIntersection(lower, active.next(lower)));
+						events.remove(getIntersection(lower, active.previous(upper)));
 					}
 					events.remove(point);
 
@@ -636,14 +613,11 @@
 				return map;
 			}
 
-
-			/* Checks upper & lower neighbor segments for intersections with the current (specified) segment */
-
 			/*
 				Intersection check.
-				Returns an intersection point if lines intersect, or null otherwise.
+				Returns an intersection event if the lines intersect, or null otherwise.
 			*/
-			function getIntersectionPoint(segment1, segment2) {
+			function getIntersection(segment1, segment2) {
 				if (!segment1 || !segment2) {
 					return null;
 				}
@@ -681,18 +655,16 @@
 				// line intersection coordinates
 				var x = (b2*c1 - b1*c2) / det;
 				var y = (a1*c2 - a2*c1) / det;
-				// console.log("Global intersection {x:", x, " y:", y, "} ids [", segment1.id, ",", segment2.id, "]");
 
 				/* Segments intersect if (x,y) is within each segment's range */
-				var point = new EventPoint("intersection", null, x, y);
-				point.ids = [segment1.id, segment2.id];
+				var point = new EventPoint("intersection", null, x, y, [segment1.id, segment2.id]);
 				if (point.inRange(segment1.left, segment1.right) && point.inRange(segment2.left, segment2.right)) {
 					console.log("In range intersection {x:", x.toFixed(2), " y:", y.toFixed(2), "}");
 					return point;
+				} else {
+					console.log("Not in range: [", segment1.id, segment2.id, "]");
+					return null;
 				}
-
-				console.log("Not in range: [", segment1.id, segment2.id, "]");
-				return null;
 			}
 
 			/* Returns an array of terminal points for given lines. */
