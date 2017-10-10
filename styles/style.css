@@ -1,0 +1,33 @@
+h1 {
+	text-align: center;
+	font-size: 20px;
+}
+svg {
+	stroke-width: 3px;
+	border: 1px solid grey;
+}
+.xAxis path, .xAxis line,
+.yAxis path, .yAxis line {
+	fill: none;
+	stroke: grey;
+	stroke-width: 1;
+	shape-rendering: crispEdges;
+}
+path.line {
+	stroke: steelblue;
+	stroke-width: 2;
+	fill: steelblue;
+	fill-opacity: 0.3;
+}
+path.xCursor {
+	stroke: grey;
+	stroke-width: 1;
+}
+circle {
+	fill: blue;
+}
+path {
+	stroke: steelblue;
+	stroke-width: 2px;
+	stroke-linecap: round;
+}
