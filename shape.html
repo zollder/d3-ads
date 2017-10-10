@@ -6,45 +6,15 @@
 		<!-- <script type="text/javascript" src="libs/require.js"></script> -->
 		<script type="text/javascript" src="libs/rbtree.min.js"></script>
 		<script type="text/javascript" src="https://d3js.org/d3.v4.min.js"></script>
-		<style type="text/css">
-			h1 {
-				text-align: center;
-				font-size: 20px;
-			}
-			svg {
-				stroke-width: 3px;
-				border: 1px solid grey;
-			}
-			.xAxis path, .xAxis line,
-			.yAxis path, .yAxis line {
-				fill: none;
-				stroke: grey;
-				stroke-width: 1;
-				shape-rendering: crispEdges;
-			}
-			path.line {
-				stroke: steelblue;
-				stroke-width: 2;
-				fill: steelblue;
-				fill-opacity: 0.3;
-			}
-			path.xCursor {
-				stroke: grey;
-				stroke-width: 1;
-			}
-			circle {
-				fill: blue;
-			}
-			path {
-				stroke: steelblue;
-				stroke-width: 2px;
-				stroke-linecap: round;
-			}
-		</style>
+		<script type="text/javascript" src="scripts/EventPoint.js"></script>
+		<script type="text/javascript" src="scripts/EventsQueue.js"></script>
+		<script type="text/javascript" src="scripts/Segment.js"></script>
+		<script type="text/javascript" src="scripts/SweepLine.js"></script>
+		<link rel="stylesheet" type="text/css" href="styles/style.css">
 	</head>
 	<body>
 	    <div id="graph">
-			<h1>Line Sweep algorithm visualization</h1>
+			<h1>Sweep Line algorithm visualization</h1>
 		</div>
 		<div id="toolbox">
 				<input id="undoBtn" name="updateButton"  type="button" value="Undo" onclick="removeLast()" />
@@ -53,19 +23,12 @@
 		</div>
 		<script type="text/javascript" charset="utf-8">
 
-		/* TODO:
-			1. convert lines array of arrays to an array of objects to be able to add labels and so other useful manipulations
-			2. round inersection point values and show its coordinates
-			3. 
-		*/
-
 			var width = 600;
 			var height = 400;
 
 			var currentPath;
 			var isDrawing = false;
 			var lines = [];
-			var intersections = [];
 
 			/*
 				Initializes main components and behavior.
@@ -169,338 +132,38 @@
 
 			/*
 				Cleans the drawing area.
-				Removes all lines and associated terminal points.
+				Removes the cursor, lines, associated terminal points and their labels.
 			*/
 			function clearAll() {
-				console.log("Clearing ...")
+				console.log("Clearing ...");
 				svg.selectAll("path").remove();
 				svg.selectAll("circle").remove();
+				svg.selectAll("xCursor").remove();
+				svg.selectAll("text").remove();
+				lines = [];
 			}
 
 			// ------------------------------------------------------------------------------------
 			/*
-				0. Init intersection point holder.
-				1. Init an empty active set that holds segments currently crossed by the sweep line 
-				2. Init an events queue (BST) and fill it with all segment's end-points sorted by X coordinate
-				3. While the BST is not empty, process each event:
-					3.1 Retrieve the point with min X coordinate
-					3.2 If it's a "left" endpoint
-						- insert the line the point belongs to into an active set sorted by left point's Y coordinate
-						- check neighbors, if any, for intersections
-						- ??? insert discovered intersection, if any, into the priority queue (BST)
-						- insert discovered intersection, if any, into the ordered set of intersections
-					3.3 If it's a "right" point
-						- remove the line the point belongs to from the active set
-						- check neighbors, if any, for intersections
-						- insert discovered intersections, into "found" set
-					3.4 If it's an intersection point
-						-
-						- 
+				1. Initialize intersection point holder (output).
+				2. Init an empty active set (SL) that holds segments currently crossed by the sweep line (use Y as key).
+				3. Init an events queue (EQ) and fill it with all segment's end-points sorted by X coordinate.
+				4. While the EQ is not empty, process each event:
+					4.1 Retrieve and remove an event with min X from the EQ
+					4.2 If it's a "left" endpoint:
+						- insert the new segment into SL line and reorder segments by Y-ref for a new sweep X
+						- verify segment's upper/lower neighbors for intersections
+						- insert found intersections to EQ if its X > min EQ X value
+						- remove lower-X-upper neighbors intersection, if any
+					4.3 If it's a "right" point
+						- add discovered upper-X-lower neighbors intersection to EQ, if any
+			 			- remove associated segment from SL
+			 		4.4 If it's an intersection point
+						- add to "discovered intersections"
+						- swap intersecting segment positions in the SL using updated yRef points
+						- add intersection of swapped-upper segment with its upper neighbor to EQ, if any
+			 			- add intersection of swapped-lower segment with its lower neighbor to EQ, if any
 			*/
-
-			var EventsQueue = {
-				tree: null,
-
-				/*
-					 Initializes and returns an events/points tree data structure.
-					 Creates a new RB tree with events comparator.
-					 Points are sorted by X (key) coordinate.
-				 */
-				init: function() {
-					if (!this.tree) {
-						this.tree = new RBTree(function(a, b) {
-							return a.x - b.x;
-						});
-					}
-					return this;
-				},
-
-				/* Inserts end points of known line segments into the tree. */
-				populate: function(linesMap) {
-					if (linesMap && this.init()) {
-						var eq = this;
-						linesMap.forEach(function(value, key) {
-							eq.tree.insert(new EventPoint("left", key, value.left.x, value.left.y, null));
-							eq.tree.insert(new EventPoint("right", key, value.right.x, value.right.y, null));
-						});
-					} else {
-						console.log("Lines map is undefined.");
-					}
-					console.log("Events: ", this.tree);
-					return this;
-				},
-
-				getMin: function() {
-					return this.init().tree.min();
-				},
-
-				isEmpty: function() {
-					return this.init().tree.size === 0;
-				},
-
-				insert: function(event) {
-					if (event && this.init()) {
-						if (!this.tree.insert(event)) {
-							console.log("Event exists:", event);
-						}
-					} else {
-						console.log("Event undefined:");
-					}
-					return this;
-				},
-
-				insertIntersection: function(event) {
-					if (event && !event.isIntersection()) {
-						console.log("Not an intersection event: ", event);
-					}
-					if (event && (this.isEmpty() || event.x > this.tree.min().x)) {
-						console.log("Add intersection event: ", event);
-						this.tree.insert(event);
-					}
-					return this;
-				},
-
-				remove: function(event) {
-					if (event && this.init()) {
-						if (this.tree.remove(event)) {
-							console.log("Removed event: ", event);
-						} else {
-							console.log("Can't remove non-existing event: ", event);
-						}
-					}
-					return this;
-				}
-			};
-
-			// TODO: define Point object and use it in EventPoint and Segment
-			var EventPoint = function EventPoint (type, id, x, y, ids) {
-				this.type = type;
-				this.lineId = id;
-				this.x = x;
-				this.y = y;
-				this.ids = ids;
-			};
-			EventPoint.prototype = {
-				constructor: EventPoint,
-
-				isLeft: function() {
-					return this.type === "left";
-				},
-
-				isRight: function() {
-					return this.type === "right";
-				},
-
-				isIntersection: function() {
-					return this.type === "intersection" && this.ids != null;
-				},
-
-				/*
-				 Verifies if the point is in range of the segment.
-				 Returns true if the point lies within segment's projections, or false otherwise.
-				 */
-				inRange: function(left, right) {
-					if (!left || !right)
-						return false;
-
-					return this.x >= this.min(left.x, right.x)
-						&& this.y >= this.min(left.y, right.y)
-						&& this.x <= this.max(left.x, right.x)
-						&& this.y <= this.max(left.y, right.y);
-				},
-
-				/* Draws intersection point (itself) */
-				drawIntersection: function() {
-					if (this.isIntersection()) {
-						svg.append("circle")
-								.data([this])
-								.style("fill",'red')
-								.attr("r", 3)
-								.attr("cx", function(d) { return d.x; })
-								.attr("cy", function(d) { return d.y; });
-					} else {
-						console.log("Not an intersection point", this);
-					}
-					return this;
-				},
-
-				/* Draws specified point, TODO: find a better place/use-case (segment?) */
-				drawPoint: function(point) {
-					svg.append("circle")
-						.data([point])
-						.style("fill",'green')
-						.attr("r", 3)
-						.attr("cx", function(d) { return d.x; })
-						.attr("cy", function(d) { return d.y; });
-					return this;
-				},
-
-				drawLabel: function() {
-					svg.append("text")
-							.data([this])
-							.attr("x", function(d) { return d.x; })
-							.attr("y", function(d) { return d.y; })
-							.attr("dx", "-10")
-							.attr("dy", "-5")
-							.text(function(d) { return d.lineId; });
-				},
-
-				min: function(val1, val2) {
-					return val1 < val2 ? val1 : val2;
-				},
-
-				max: function(val1, val2) {
-					return val1 > val2 ? val1 : val2;
-				}
-			};
-				
-			var Segment = function Segment (id, left, right) {
-				this.id = id;
-				this.ref = left;
-				this.left = left;
-				this.right = right;
-			};
-			Segment.prototype = {
-				constructor: Segment,
-
-				setRef: function(refPoint) {
-					this.ref = refPoint;
-					return this;
-				},
-
-				updateRefByX : function(xRef) {
-					var x1 = this.left.x;
-					var x2 = this.right.x;
-					var y1 = this.left.y;
-					var y2 = this.right.y;
-					var A = y2 - y1;
-					var B = x1 - x2;
-					var C = A*x1 + B*y1;
-					// Ax + By = C => y = (C - Ax) / B
-					var yRef = (C - A*xRef)/B;
-					return this.setRef({x:xRef, y:yRef});
-				},
-
-				updateRefByY: function(yRef) {
-					var x1 = this.left.x;
-					var x2 = this.right.x;
-					var y1 = this.left.y;
-					var y2 = this.right.y;
-					var A = y2 - y1;
-					var B = x1 - x2;
-					var C = A*x1 + B*y1;
-					// Ax + By = C => x = (C - By) / A
-					var xRef = (C - B*yRef)/A;
-					return this.setRef({x:xRef, y:yRef});
-				}
-			};
-
-			var SweepLine = {
-				tree: null,
-
-				init: function() {
-					console.log("Initializing SL tree");
-					this.tree = new RBTree(function(a, b) {
-						return a.ref.y - b.ref.y;
-					});
-					return this;
-				},
-
-				insert: function(segment) {
-					if (!this.tree) {
-						this.init();
-					}
-					if (!this.tree.insert(segment)) {
-						console.log("Segment exists:", segment.id);
-					} else {
-						console.log("SL add: ", segment.id);
-					}
-					return this;
-				},
-
-				insertAndReorder: function(segment) {
-					return this.insert(segment).reorder(segment.ref.x);
-				},
-
-				remove: function(segment) {
-					if (!this.tree) {
-						console.log("SL is not initialized");
-					}
-					if (!this.tree.remove(segment)) {
-						console.log("Segment doesn't exists:", segment.id);
-					} else {
-						console.log("SL remove: ", segment.id);
-					}
-					return this;
-				},
-
-				reorder: function(xRef) {
-					var sl = this;
-					console.log("SL reorder all");
-					this.getNodes().forEach(function(node) {
-						sl.remove(node).insert(node.updateRefByX(xRef));
-					});
-					return this;
-				},
-
-				next: function(segment) {
-					if (!this.tree || !segment) {
-						return null;
-					}
-					var iterator = this.tree.findIter(segment);
-					if (iterator && iterator.next()) {
-						return iterator.data();
-					}
-					return null;
-				},
-
-				previous: function(segment) {
-					if (!this.tree || !segment) {
-						return null;
-					}
-					var iterator = this.tree.findIter(segment);
-					if (iterator && iterator.prev()) {
-						return iterator.data();
-					}
-					return null;
-				},
-
-				getNodes: function () {
-					var nodes = [];
-					if (!this.tree) {
-						return nodes;
-					}
-					this.tree.each(function(node) {
-						nodes.push(node);
-					});
-					return nodes;
-				},
-
-				print: function() {
-					if (!this.tree) {
-						console.log("SL tree is not initialized");
-						return;
-					}
-					var printSet = [];
-					this.tree.each(function(segment) {
-						printSet.push(segment.id);
-					});
-					console.log("SL tree: ", printSet);
-				},
-
-				swap: function(seg1, seg2) {
-					this.print();
-					console.log("SL swapping: ", seg1.id, seg2.id);
-					if (this.tree.remove(seg1) && this.tree.remove(seg2)) {
-						var yRefSeg1 = seg1.ref.y;
-						var yRefSeg2 = seg2.ref.y;
-						this.insert(seg1.updateRefByY(yRefSeg2));
-						this.insert(seg2.updateRefByY(yRefSeg1));
-					}
-					this.print();
-					return this;
-				}
-			};
 
 			/*
 				Sweeps the cursor through data all points.
@@ -524,6 +187,11 @@
 				// loop through all events/points with 1s interval
 				var intervalId = setInterval(frame, 1000);
 				function frame() {
+					if (events.isEmpty()) {
+						clearInterval(intervalId);
+						console.log("Discovered intersections: ", intersections);
+						return;
+					}
 					var point = events.getMin();
 					var segment = linesMap.get(point.lineId);
 					console.log("Event", point.lineId, "[", point.x, ",", point.y, "]");
@@ -540,11 +208,10 @@
 					}
 					else if (point.isRight()) {
 						active.print();
-
 						events.insertIntersection(getIntersection(active.previous(segment), active.next(segment)));
 						active.remove(segment);
 					}
-					else {	// intersection point
+					else {
 						// add this point to intersections set/list
 						console.log("Processing intersection point:", point);
 						var ixPointAsString = JSON.stringify({ x:point.x, y:point.y });
@@ -579,28 +246,7 @@
 						.attr("transform", function(){
 							return "translate(" + point.x + ",0)";
 						});
-
-					if (events.isEmpty()) {
-						clearInterval(intervalId);
-						console.log("Discovered intersections: ", intersections);
-					}
 				}
-			}
-
-			function printActiveTree(tree) {
-				var printSet = [];
-				tree.each(function(item) {
-					printSet.push(item.id);
-				});
-				console.log("Active set: ", printSet);
-			}
-
-			function printEventsTree(tree) {
-				var printSet = [];
-				tree.each(function(item) {
-					printSet.push(item);
-				});
-				console.log("Event set: ", printSet);
 			}
 
 			/* Initializes a new key-value map of lines and fills it with line data */ 
@@ -675,37 +321,6 @@
 						points.push(lines[i][j]);
 					}
 				}
-				return points;
-			}
-
-			/*
-				Maps lines to segment objects.
-				Returns a collection of segments.
-			*/
-			function getSegments(lines) {
-				return lines.map(function(val, indx) {
-					return {
-						id:  indx,
-						left: { id: indx, type: "left", point: val[0] },
-						right: { id: indx, type: "right", point: val[1] }
-					};
-				});
-			}
-
-			/*
-				Maps lines to point objects.
-				Sorts points in ascending order by x coordinate.
-				Returns a collection of sorted segment points.
-			*/
-			function getSegmentPoints(lines) {
-				var points = [];
-				lines.forEach(function(val, idx) {
-					points.push({ id: idx, type: "left", x: val[0][0], y: val[0][1] });
-					points.push({ id: idx, type: "right", x: val[1][0], y: val[1][1] });
-				});
-				points.sort(function(a, b) {
-					return a.x - b.x;
-				});
 				return points;
 			}
 
