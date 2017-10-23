@@ -1,2 +1,2 @@
-# d3-ads demo
-https://zollder.github.io/d3-ads/shape.html
+# sweep line demo
+https://zollder.github.io/sweep-line-d3/shape.html
